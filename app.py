@@ -85,9 +85,15 @@ def extract_text_from_video(video_url):
         # Combine all text from the transcript
         full_text = ' '.join([entry['text'] for entry in transcript])
         
+        if not full_text.strip():
+            return "Error: Extracted transcript is empty."
+        
+        logger.info(f"Successfully extracted transcript. Length: {len(full_text)} characters")
         return full_text
     except Exception as e:
-        return f"Error extracting text from video: {str(e)}"
+        error_message = f"Error extracting text from video: {str(e)}"
+        logger.error(error_message)
+        return error_message
 
 def generate_flashcards(text, num_cards=5):
     logger.info(f"Starting generate_flashcards function with {num_cards} cards")
@@ -161,107 +167,100 @@ def generate_quiz(text, num_questions=5):
     logger.info(f"Starting generate_quiz function with {num_questions} questions")
     logger.info(f"Input text length: {len(text)}")
     
+    if not text.strip():
+        logger.error("Input text is empty")
+        return [], "Input text is empty"
+
     if not client.api_key:
         logger.error("OpenAI API key is not set")
         return [], "OpenAI API key is not set"
 
-    # Split the generation into batches
-    batch_size = 5
-    num_batches = (num_questions + batch_size - 1) // batch_size
+    prompt = f"""
+    Create a multiple-choice quiz with exactly {num_questions} questions based on the following text. It is crucial that you generate exactly {num_questions} questions. No more, no less.
+    For each question:
+    1. Identify a key concept or fact from the text.
+    2. Create a clear and concise question about this concept.
+    3. Provide four answer choices, including the correct answer and three plausible distractors.
+    4. Indicate the correct answer.
 
-    all_questions = []
+    Format each question as:
+    Q: [question]
+    A: [option 1]
+    B: [option 2]
+    C: [option 3]
+    D: [option 4]
+    Correct: [letter of correct answer]
 
-    for batch in range(num_batches):
-        questions_in_batch = min(batch_size, num_questions - batch * batch_size)
+    Text: {text[:4000]}  # Limit text to 4000 characters
+
+    Quiz:
+    """
+
+    try:
+        logger.info("Sending request to OpenAI API")
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an expert educator creating challenging multiple-choice questions to test understanding of key concepts."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=2000,
+            n=1,
+            temperature=0.7,
+        )
+        logger.info("Received response from OpenAI API")
+
+        if not response.choices:
+            logger.error("No choices in the response")
+            return [], "No choices in the OpenAI API response"
+
+        quiz_text = response.choices[0].message.content.strip()
+        logger.info(f"Generated quiz text (first 500 chars): {quiz_text[:500]}...")
         
-        prompt = f"""
-        Create a multiple-choice quiz with exactly {questions_in_batch} questions based on the following text. It is crucial that you generate exactly {questions_in_batch} questions. No more, no less.
-        For each question:
-        1. Identify a key concept or fact from the text.
-        2. Create a clear and concise question about this concept.
-        3. Provide four answer choices, including the correct answer and three plausible distractors.
-        4. Indicate the correct answer.
-        5. Use LaTeX notation for any mathematical expressions, enclosed in $ symbols for inline math.
+        quiz = parse_quiz_text(quiz_text)
+        
+        logger.info(f"Parsed {len(quiz)} questions")
+        
+        if len(quiz) != num_questions:
+            logger.warning(f"Generated {len(quiz)} questions instead of the requested {num_questions}")
+        
+        if not quiz:
+            logger.error("No questions could be parsed from the OpenAI API response")
+            return [], "No questions could be parsed from the OpenAI API response"
+        
+        return quiz, None
+    except Exception as e:
+        logger.error(f"Error in generate_quiz: {str(e)}")
+        logger.error(traceback.format_exc())
+        return [], f"Error in generate_quiz: {str(e)}"
 
-        Format each question as:
-        Q: [question]
-        A: [option 1]
-        B: [option 2]
-        C: [option 3]
-        D: [option 4]
-        Correct: [letter of correct answer]
+def parse_quiz_text(quiz_text):
+    quiz = []
+    current_question = None
+    current_options = []
+    current_correct = None
 
-        Text: {text[:4000]}  # Limit text to 4000 characters per batch
-
-        Quiz:
-        """
-
-        try:
-            logger.info(f"Sending request to OpenAI API for batch {batch+1}")
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are an expert educator creating challenging multiple-choice questions to test understanding of key concepts."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=2000,
-                n=1,
-                temperature=0.7,
-            )
-            logger.info(f"Received response from OpenAI API for batch {batch+1}")
-
-            if not response.choices:
-                logger.error(f"No choices in the response for batch {batch+1}")
-                continue
-
-            quiz_text = response.choices[0].message.content.strip()
-            logger.info(f"Generated quiz text for batch {batch+1} (first 500 chars): {quiz_text[:500]}...")
-            
-            current_question = None
+    for line in quiz_text.split('\n'):
+        line = line.strip()
+        if line.startswith('Q:'):
+            if current_question:
+                if len(current_options) == 4 and current_correct:
+                    quiz.append((current_question, current_options, current_correct))
+                else:
+                    logger.warning(f"Skipping malformed question: {current_question}")
+            current_question = line[2:].strip()
             current_options = []
             current_correct = None
+        elif line.startswith(('A:', 'B:', 'C:', 'D:')):
+            current_options.append(line[2:].strip())
+        elif line.startswith('Correct:'):
+            current_correct = line[8:].strip()
 
-            for line in quiz_text.split('\n'):
-                line = line.strip()
-                if line.startswith('Q:'):
-                    if current_question:
-                        if len(current_options) == 4 and current_correct:
-                            all_questions.append((current_question, current_options, current_correct))
-                        else:
-                            logger.warning(f"Skipping malformed question: {current_question}")
-                    current_question = line[2:].strip()
-                    current_options = []
-                    current_correct = None
-                elif line.startswith(('A:', 'B:', 'C:', 'D:')):
-                    current_options.append(line[2:].strip())
-                elif line.startswith('Correct:'):
-                    correct_letter = line[8:].strip()
-                    if correct_letter in 'ABCD':
-                        current_correct = current_options[ord(correct_letter) - ord('A')]
-                    else:
-                        logger.warning(f"Invalid correct answer format: {line}")
+    # Add the last question
+    if current_question and len(current_options) == 4 and current_correct:
+        quiz.append((current_question, current_options, current_correct))
 
-            # Add the last question of the batch
-            if current_question and len(current_options) == 4 and current_correct:
-                all_questions.append((current_question, current_options, current_correct))
-
-            logger.info(f"Parsed {len(all_questions)} questions so far")
-
-        except Exception as e:
-            logger.error(f"Error in generate_quiz batch {batch+1}: {str(e)}")
-            logger.error(traceback.format_exc())
-
-    logger.info(f"Total questions generated: {len(all_questions)}")
-    
-    if len(all_questions) != num_questions:
-        logger.warning(f"Generated {len(all_questions)} questions instead of the requested {num_questions}")
-    
-    if not all_questions:
-        logger.error("No questions could be generated from the OpenAI API response")
-        logger.error(f"Full API response: {response}")
-        return [], "No questions could be generated from the OpenAI API response"
-    
-    return all_questions[:num_questions], None
+    return quiz
 
 def main():
     st.set_page_config(page_title="AI Study Tool", page_icon="📚", layout="centered")
