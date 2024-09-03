@@ -77,7 +77,8 @@ def extract_text(uploaded_file):
 def extract_text_from_video(video_url):
     try:
         # Extract video ID from URL
-        video_id = YouTube(video_url).video_id
+        video = YouTube(video_url)
+        video_id = video.video_id
         
         # Get the transcript
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
@@ -86,6 +87,7 @@ def extract_text_from_video(video_url):
         full_text = ' '.join([entry['text'] for entry in transcript])
         
         if not full_text.strip():
+            logger.warning("Extracted transcript is empty.")
             return "Error: Extracted transcript is empty."
         
         logger.info(f"Successfully extracted transcript. Length: {len(full_text)} characters")
@@ -265,7 +267,6 @@ def parse_quiz_text(quiz_text):
 def main():
     st.set_page_config(page_title="AI Study Tool", page_icon="📚", layout="centered")
 
-    # Updated MathJax configuration with re-render functionality
     st.markdown("""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
     <script>
@@ -443,7 +444,11 @@ def main():
             video_url = st.text_input("Enter YouTube video URL:")
             if video_url:
                 st.session_state.extracted_text = extract_text_from_video(video_url)
-                st.success("Video processed successfully!")
+                if st.session_state.extracted_text.startswith("Error:"):
+                    st.error(st.session_state.extracted_text)
+                else:
+                    st.success("Video processed successfully!")
+                    st.write("Extracted text (first 500 characters):", st.session_state.extracted_text[:500])
         
         with tab3:
             st.session_state.input_method = "Text Input"
