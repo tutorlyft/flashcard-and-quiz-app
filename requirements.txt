@@ -1,0 +1,10 @@
+streamlit
+pandas
+openai
+python-docx
+python-pptx
+PyPDF2
+Pillow
+pytesseract
+youtube_transcript_api
+pytube
