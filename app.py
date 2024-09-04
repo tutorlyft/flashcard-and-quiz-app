@@ -146,9 +146,10 @@ def generate_flashcards(text, num_cards=5):
                 temperature=0.7,
             )
             logger.info(f"Received response from OpenAI API for batch {batch+1}")
+            logger.info(f"Full API response: {response}")  # Log the full response
 
             flashcards_text = response.choices[0].message.content.strip()
-            logger.info(f"Generated flashcards text for batch {batch+1} (first 500 chars): {flashcards_text[:500]}...")
+            logger.info(f"Generated flashcards text for batch {batch+1}: {flashcards_text}")  # Log the full flashcards text
 
             for card in flashcards_text.split("\n\n"):
                 if card.startswith("Q: ") and "A: " in card:
@@ -211,13 +212,14 @@ def generate_quiz(text, num_questions=5):
             temperature=0.7,
         )
         logger.info("Received response from OpenAI API")
+        logger.info(f"Full API response: {response}")  # Log the full response
 
         if not response.choices:
             logger.error("No choices in the response")
             return [], "No choices in the OpenAI API response"
 
         quiz_text = response.choices[0].message.content.strip()
-        logger.info(f"Generated quiz text (first 500 chars): {quiz_text[:500]}...")
+        logger.info(f"Generated quiz text: {quiz_text}")  # Log the full quiz text
         
         quiz = parse_quiz_text(quiz_text)
         
@@ -293,123 +295,32 @@ def main():
     </script>
     """, unsafe_allow_html=True)
 
-    # Add custom CSS for Tinder-style flashcards with different colors
+    # Add custom CSS (Your existing CSS code here)
     st.markdown("""
     <style>
-    .flashcard-stack {
-        position: relative;
-        width: 100%;
-        height: 400px;
-        perspective: 1000px;
-    }
-    .flashcard {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        transform-style: preserve-3d;
-        transition: transform 0.6s, top 0.6s, left 0.6s, opacity 0.6s;
-        cursor: pointer;
-        border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
-    .flashcard-inner {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        text-align: center;
-        transition: transform 0.6s;
-        transform-style: preserve-3d;
-    }
-    .flashcard.flipped .flashcard-inner {
-        transform: rotateY(180deg);
-    }
-    .flashcard-front, .flashcard-back {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        backface-visibility: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        padding: 20px;
-        box-sizing: border-box;
-        overflow-y: auto;
-        color: white;
-    }
-    .flashcard-back {
-        transform: rotateY(180deg);
-    }
-    .flashcard:nth-child(1) { z-index: 5; }
-    .flashcard:nth-child(2) { z-index: 4; top: 5px; left: 5px; opacity: 0.8; }
-    .flashcard:nth-child(3) { z-index: 3; top: 10px; left: 10px; opacity: 0.6; }
-    .flashcard:nth-child(n+4) { display: none; }
-    .button-container {
-        display: flex;
-        justify-content: center;
-        gap: 10px;
-        margin-top: 20px;
-    }
-    .nav-button {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-    }
-    .nav-button:hover {
-        opacity: 0.8;
-    }
-    .flip-button { background-color: #ffd700; }
-    .next-button { background-color: #4CAF50; }
-    .back-button { background-color: #f44336; }
-    .progress-bar {
-        width: 100%;
-        height: 10px;
-        background-color: #e0e0e0;
-        margin-top: 20px;
-        border-radius: 5px;
-        overflow: hidden;
-    }
-    .progress {
-        height: 100%;
-        background-color: #4CAF50;
-        transition: width 0.3s ease;
-    }
-    @keyframes slideOutLeft {
-        to { transform: translateX(-100%) rotate(-5deg); opacity: 0; }
-    }
-    @keyframes slideOutRight {
-        to { transform: translateX(100%) rotate(5deg); opacity: 0; }
-    }
-    .slide-out-left {
-        animation: slideOutLeft 0.5s forwards;
-    }
-    .slide-out-right {
-        animation: slideOutRight 0.5s forwards;
-    }
+    /* Your existing CSS code */
     </style>
     """, unsafe_allow_html=True)
+
+    # Check OpenAI API key
+    if not client.api_key:
+        st.error("OpenAI API key is not set. Please check your configuration.")
+    else:
+        logger.info("OpenAI API key is set")
 
     st.title("📚 AI Study Tool")
     st.write("Welcome to the AI Study Tool! Follow the steps below to create your study materials.")
     
-# Define the render_content function here, inside the main function
     def render_content(content):
         import re
 
         def format_latex(match):
             latex = match.group(1)
-            # Convert patterns like x4 to x^{4}
             latex = re.sub(r'([a-zA-Z])(\d+)', r'\1^{\2}', latex)
-            # Ensure proper spacing around operators
             latex = re.sub(r'(?<=[0-9a-zA-Z}])([-+])', r' \1 ', latex)
             return f'$${latex}$$'
 
-        # Convert inline LaTeX delimiters to display math and format content
         formatted_content = re.sub(r'\$(.+?)\$', format_latex, content)
-        
-        # Ensure all math content is wrapped in MathJax delimiters
         final_content = re.sub(r'(\$\$.*?\$\$)', r'\1', formatted_content)
         
         return st.markdown(final_content, unsafe_allow_html=True)
@@ -509,6 +420,7 @@ def main():
         
         # Only generate study material if it hasn't been generated yet
         if st.session_state.study_material is None:
+            st.write("Debug: Extracted text (first 500 characters):", st.session_state.extracted_text[:500])
             with st.spinner(f"Generating your {st.session_state.study_tool.lower()}..."):
                 try:
                     logger.info(f"Attempting to generate {st.session_state.study_tool}")
@@ -519,7 +431,6 @@ def main():
                     else:  # Quiz
                         st.session_state.study_material, error_message = generate_quiz(st.session_state.extracted_text, st.session_state.num_items)
                     
-                    # Check if any study material was generated
                     if st.session_state.study_material:
                         logger.info(f"Generated study material: {st.session_state.study_material}")
                         st.success(f"Successfully generated {st.session_state.study_tool}!")
@@ -531,7 +442,8 @@ def main():
                 except Exception as e:
                     logger.error(f"Error generating study material: {str(e)}")
                     logger.error(traceback.format_exc())
-                    st.error(f"An error occurred while generating {st.session_state.study_tool.lower()}. Please try again.")
+                    st.error(f"An error occurred while generating {st.session_state.study_tool.lower()}. Please check the logs for details.")
+                    st.error(f"Error details: {str(e)}")
 
         if st.session_state.study_material:
             logger.info(f"Displaying {st.session_state.study_tool}")
@@ -576,7 +488,6 @@ def main():
                     if answer_key not in st.session_state.quiz_answers:
                         st.session_state.quiz_answers[answer_key] = None
 
-                    # Use radio button for answer selection
                     user_answer = st.radio(
                         f"Select your answer for Question {i}:",
                         options,
@@ -584,7 +495,6 @@ def main():
                         index=None
                     )
                     
-                    # Update the answer immediately when selected
                     if user_answer is not None:
                         st.session_state.quiz_answers[answer_key] = user_answer
                     
@@ -607,12 +517,12 @@ def main():
                     score = (correct_answers / len(st.session_state.study_material)) * 100
                     st.success(f"Quiz completed! Your score: {score:.2f}%")
 
-                    if st.button("Start Over", key="start_over"):
-                        logger.info("Starting over")
-                        for key in list(st.session_state.keys()):
-                            del st.session_state[key]
-                        st.session_state.step = 1
-                        st.rerun()
+        if st.button("Start Over", key="start_over"):
+            logger.info("Starting over")
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.session_state.step = 1
+            st.rerun()
 
 if __name__ == "__main__":
     main()
