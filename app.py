@@ -165,7 +165,6 @@ def generate_flashcards(text, num_cards=5):
     logger.info(f"Total flashcards generated: {len(all_flashcards)}")
     return all_flashcards[:num_cards]
 
-    
 def generate_quiz(text, num_questions=5):
     logger.info(f"Starting generate_quiz function with {num_questions} questions")
     logger.info(f"Input text length: {len(text)}")
@@ -177,6 +176,38 @@ def generate_quiz(text, num_questions=5):
     if not client.api_key:
         logger.error("OpenAI API key is not set")
         return [], "OpenAI API key is not set"
+
+    def parse_quiz_text(quiz_text):
+        quiz = []
+        current_question = None
+        current_options = []
+        current_correct = None
+
+        for line in quiz_text.split('\n'):
+            line = line.strip()
+            if line.startswith('Q:'):
+                if current_question:
+                    if len(current_options) == 4 and current_correct:
+                        quiz.append((current_question, current_options, current_correct))
+                    else:
+                        logger.warning(f"Skipping malformed question: {current_question}")
+                current_question = line[2:].strip()
+                current_options = []
+                current_correct = None
+            elif line.startswith(('A:', 'B:', 'C:', 'D:')):
+                current_options.append(line[2:].strip())
+            elif line.startswith('Correct:'):
+                correct_letter = line[8:].strip()
+                if correct_letter in 'ABCD':
+                    current_correct = current_options[ord(correct_letter) - ord('A')]
+                else:
+                    logger.warning(f"Invalid correct answer format: {line}")
+
+        # Add the last question
+        if current_question and len(current_options) == 4 and current_correct:
+            quiz.append((current_question, current_options, current_correct))
+
+        return quiz
 
     prompt = f"""
     Create a multiple-choice quiz with exactly {num_questions} questions based on the following text. It is crucial that you generate exactly {num_questions} questions. No more, no less.
@@ -237,37 +268,12 @@ def generate_quiz(text, num_questions=5):
         logger.error(f"Error in generate_quiz: {str(e)}")
         logger.error(traceback.format_exc())
         return [], f"Error in generate_quiz: {str(e)}"
-
-def parse_quiz_text(quiz_text):
-    quiz = []
-    current_question = None
-    current_options = []
-    current_correct = None
-
-    for line in quiz_text.split('\n'):
-        line = line.strip()
-        if line.startswith('Q:'):
-            if current_question:
-                if len(current_options) == 4 and current_correct:
-                    quiz.append((current_question, current_options, current_correct))
-                else:
-                    logger.warning(f"Skipping malformed question: {current_question}")
-            current_question = line[2:].strip()
-            current_options = []
-            current_correct = None
-        elif line.startswith(('A:', 'B:', 'C:', 'D:')):
-            current_options.append(line[2:].strip())
-        elif line.startswith('Correct:'):
-            current_correct = line[8:].strip()
-
-    # Add the last question
-    if current_question and len(current_options) == 4 and current_correct:
-        quiz.append((current_question, current_options, current_correct))
-
-    return quiz
-
+    
 def main():
     st.set_page_config(page_title="AI Study Tool", page_icon="📚", layout="centered")
+
+    # Add this near the top of the main function
+    debug_mode = False  # Set to True to see debug output
 
     st.markdown("""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
@@ -478,36 +484,38 @@ def main():
                 st.progress((st.session_state.current_card_index + 1) / len(st.session_state.study_material))
                 st.write(f"Card {st.session_state.current_card_index + 1} of {len(st.session_state.study_material)}")
 
-            else:  # Quiz
-                st.write(f"Generated Quiz with {len(st.session_state.study_material)} Questions:")
-                for i, (question, options, correct) in enumerate(st.session_state.study_material, 1):
-                    st.subheader(f"Question {i}")
-                    st.markdown(question, unsafe_allow_html=True)
-                    
-                    answer_key = f"q_{i}"
-                    if answer_key not in st.session_state.quiz_answers:
-                        st.session_state.quiz_answers[answer_key] = None
+            # In the quiz rendering section of the main function
+            st.write(f"Generated Quiz with {len(st.session_state.study_material)} Questions:")
+            for i, (question, options, correct) in enumerate(st.session_state.study_material, 1):
+                st.subheader(f"Question {i}")
+                render_content(question)  # Use render_content instead of st.markdown
+                
+                answer_key = f"q_{i}"
+                if answer_key not in st.session_state.quiz_answers:
+                    st.session_state.quiz_answers[answer_key] = None
 
-                    user_answer = st.radio(
-                        f"Select your answer for Question {i}:",
-                        options,
-                        key=f"radio_{answer_key}",
-                        index=None
-                    )
-                    
-                    if user_answer is not None:
-                        st.session_state.quiz_answers[answer_key] = user_answer
-                    
-                    check_button = st.button(f"Check Answer", key=f"check_{i}", disabled=user_answer is None)
-                    
-                    if check_button and user_answer is not None:
-                        st.session_state.quiz_checked[answer_key] = True
-                        if user_answer == correct:
-                            st.success("Correct! 🎉")
-                        else:
-                            st.error(f"Incorrect. The correct answer is: {correct}")
-                    
-                    st.write("---")
+                user_answer = st.radio(
+                    f"Select your answer for Question {i}:",
+                    options,
+                    key=f"radio_{answer_key}",
+                    index=None,
+                    format_func=lambda x: render_content(x)  # Use render_content for options
+                )
+                
+                if user_answer is not None:
+                    st.session_state.quiz_answers[answer_key] = user_answer
+                
+                check_button = st.button(f"Check Answer", key=f"check_{i}", disabled=user_answer is None)
+                
+                if check_button and user_answer is not None:
+                    st.session_state.quiz_checked[answer_key] = True
+                    if user_answer == correct:
+                        st.success("Correct! 🎉")
+                    else:
+                        st.error("Incorrect. The correct answer is:")
+                        render_content(correct)  # Use render_content for correct answer
+                
+                st.write("---")
 
                 # Calculate and display the score after all questions are answered
                 answered_questions = sum(1 for key in st.session_state.quiz_checked if st.session_state.quiz_checked[key])
