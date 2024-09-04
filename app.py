@@ -272,9 +272,6 @@ def generate_quiz(text, num_questions=5):
 def main():
     st.set_page_config(page_title="AI Study Tool", page_icon="📚", layout="centered")
 
-    # Add this near the top of the main function
-    debug_mode = False  # Set to True to see debug output
-
     st.markdown("""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
     <script>
@@ -307,12 +304,6 @@ def main():
     /* Your existing CSS code */
     </style>
     """, unsafe_allow_html=True)
-
-    # Check OpenAI API key
-    if not client.api_key:
-        st.error("OpenAI API key is not set. Please check your configuration.")
-    else:
-        logger.info("OpenAI API key is set")
 
     st.title("📚 AI Study Tool")
     st.write("Welcome to the AI Study Tool! Follow the steps below to create your study materials.")
@@ -365,7 +356,6 @@ def main():
                     st.error(st.session_state.extracted_text)
                 else:
                     st.success("Video processed successfully!")
-                    st.write("Extracted text (first 500 characters):", st.session_state.extracted_text[:500])
         
         with tab3:
             st.session_state.input_method = "Text Input"
@@ -426,7 +416,6 @@ def main():
         
         # Only generate study material if it hasn't been generated yet
         if st.session_state.study_material is None:
-            st.write("Debug: Extracted text (first 500 characters):", st.session_state.extracted_text[:500])
             with st.spinner(f"Generating your {st.session_state.study_tool.lower()}..."):
                 try:
                     logger.info(f"Attempting to generate {st.session_state.study_tool}")
@@ -448,8 +437,7 @@ def main():
                 except Exception as e:
                     logger.error(f"Error generating study material: {str(e)}")
                     logger.error(traceback.format_exc())
-                    st.error(f"An error occurred while generating {st.session_state.study_tool.lower()}. Please check the logs for details.")
-                    st.error(f"Error details: {str(e)}")
+                    st.error(f"An error occurred while generating {st.session_state.study_tool.lower()}. Please try again.")
 
         if st.session_state.study_material:
             logger.info(f"Displaying {st.session_state.study_tool}")
@@ -484,38 +472,36 @@ def main():
                 st.progress((st.session_state.current_card_index + 1) / len(st.session_state.study_material))
                 st.write(f"Card {st.session_state.current_card_index + 1} of {len(st.session_state.study_material)}")
 
-            # In the quiz rendering section of the main function
-            st.write(f"Generated Quiz with {len(st.session_state.study_material)} Questions:")
-            for i, (question, options, correct) in enumerate(st.session_state.study_material, 1):
-                st.subheader(f"Question {i}")
-                render_content(question)  # Use render_content instead of st.markdown
-                
-                answer_key = f"q_{i}"
-                if answer_key not in st.session_state.quiz_answers:
-                    st.session_state.quiz_answers[answer_key] = None
+            else:  # Quiz
+                st.write(f"Generated Quiz with {len(st.session_state.study_material)} Questions:")
+                for i, (question, options, correct) in enumerate(st.session_state.study_material, 1):
+                    st.subheader(f"Question {i}")
+                    render_content(question)
+                    
+                    answer_key = f"q_{i}"
+                    if answer_key not in st.session_state.quiz_answers:
+                        st.session_state.quiz_answers[answer_key] = None
 
-                user_answer = st.radio(
-                    f"Select your answer for Question {i}:",
-                    options,
-                    key=f"radio_{answer_key}",
-                    index=None,
-                    format_func=lambda x: render_content(x)  # Use render_content for options
-                )
-                
-                if user_answer is not None:
-                    st.session_state.quiz_answers[answer_key] = user_answer
-                
-                check_button = st.button(f"Check Answer", key=f"check_{i}", disabled=user_answer is None)
-                
-                if check_button and user_answer is not None:
-                    st.session_state.quiz_checked[answer_key] = True
-                    if user_answer == correct:
-                        st.success("Correct! 🎉")
-                    else:
-                        st.error("Incorrect. The correct answer is:")
-                        render_content(correct)  # Use render_content for correct answer
-                
-                st.write("---")
+                    user_answer = st.radio(
+                        f"Select your answer for Question {i}:",
+                        options,
+                        key=f"radio_{answer_key}",
+                        index=None
+                    )
+                    
+                    if user_answer is not None:
+                        st.session_state.quiz_answers[answer_key] = user_answer
+                    
+                    check_button = st.button(f"Check Answer", key=f"check_{i}", disabled=user_answer is None)
+                    
+                    if check_button and user_answer is not None:
+                        st.session_state.quiz_checked[answer_key] = True
+                        if user_answer == correct:
+                            st.success("Correct! 🎉")
+                        else:
+                            st.error(f"Incorrect. The correct answer is: {correct}")
+                    
+                    st.write("---")
 
                 # Calculate and display the score after all questions are answered
                 answered_questions = sum(1 for key in st.session_state.quiz_checked if st.session_state.quiz_checked[key])
