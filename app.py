@@ -15,16 +15,19 @@ from pytube import YouTube
 import sys
 import traceback
 import json
-import logging
-import random
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize the OpenAI client with the API key from the environment variable
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Set up logging
 log_stream = io.StringIO()
 logging.basicConfig(level=logging.INFO, stream=log_stream, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 def extract_text(uploaded_file):
     file_extension = uploaded_file.name.split('.')[-1].lower()
@@ -79,6 +82,8 @@ def extract_text_from_video(video_url):
         # Extract video ID from URL
         video = YouTube(video_url)
         video_id = video.video_id
+        
+        logger.info(f"Extracting transcript for video ID: {video_id}")
         
         # Get the transcript
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
@@ -177,38 +182,6 @@ def generate_quiz(text, num_questions=5):
         logger.error("OpenAI API key is not set")
         return [], "OpenAI API key is not set"
 
-    def parse_quiz_text(quiz_text):
-        quiz = []
-        current_question = None
-        current_options = []
-        current_correct = None
-
-        for line in quiz_text.split('\n'):
-            line = line.strip()
-            if line.startswith('Q:'):
-                if current_question:
-                    if len(current_options) == 4 and current_correct:
-                        quiz.append((current_question, current_options, current_correct))
-                    else:
-                        logger.warning(f"Skipping malformed question: {current_question}")
-                current_question = line[2:].strip()
-                current_options = []
-                current_correct = None
-            elif line.startswith(('A:', 'B:', 'C:', 'D:')):
-                current_options.append(line[2:].strip())
-            elif line.startswith('Correct:'):
-                correct_letter = line[8:].strip()
-                if correct_letter in 'ABCD':
-                    current_correct = current_options[ord(correct_letter) - ord('A')]
-                else:
-                    logger.warning(f"Invalid correct answer format: {line}")
-
-        # Add the last question
-        if current_question and len(current_options) == 4 and current_correct:
-            quiz.append((current_question, current_options, current_correct))
-
-        return quiz
-
     prompt = f"""
     Create a multiple-choice quiz with exactly {num_questions} questions based on the following text. It is crucial that you generate exactly {num_questions} questions. No more, no less.
     For each question:
@@ -216,6 +189,7 @@ def generate_quiz(text, num_questions=5):
     2. Create a clear and concise question about this concept.
     3. Provide four answer choices, including the correct answer and three plausible distractors.
     4. Indicate the correct answer.
+    5. Use LaTeX notation for any mathematical expressions, enclosed in $ symbols for inline math.
 
     Format each question as:
     Q: [question]
@@ -224,6 +198,9 @@ def generate_quiz(text, num_questions=5):
     C: [option 3]
     D: [option 4]
     Correct: [letter of correct answer]
+
+    Ensure that each option is on a separate line and starts with the corresponding letter (A, B, C, or D).
+    For any mathematical expressions, use LaTeX notation. For example, x^2 should be written as $x^2$.
 
     Text: {text[:4000]}  # Limit text to 4000 characters
 
@@ -268,7 +245,48 @@ def generate_quiz(text, num_questions=5):
         logger.error(f"Error in generate_quiz: {str(e)}")
         logger.error(traceback.format_exc())
         return [], f"Error in generate_quiz: {str(e)}"
+
+def parse_quiz_text(quiz_text):
+    quiz = []
+    current_question = None
+    current_options = []
+    current_correct = None
+
+    for line in quiz_text.split('\n'):
+        line = line.strip()
+        if line.startswith('Q:'):
+            if current_question:
+                if len(current_options) == 4 and current_correct:
+                    quiz.append((current_question, current_options, current_correct))
+                else:
+                    logger.warning(f"Skipping malformed question: {current_question}")
+            current_question = line[2:].strip()
+            current_options = []
+            current_correct = None
+        elif line.startswith(('A:', 'B:', 'C:', 'D:')):
+            current_options.append(line[2:].strip())
+        elif line.startswith('Correct:'):
+            correct_letter = line[8:].strip()
+            if correct_letter in 'ABCD':
+                current_correct = current_options[ord(correct_letter) - ord('A')]
+            else:
+                logger.warning(f"Invalid correct answer format: {line}")
+
+    # Add the last question
+    if current_question and len(current_options) == 4 and current_correct:
+        quiz.append((current_question, current_options, current_correct))
+
+    return quiz
+
+import re
+
+def clean_latex(text):
+    # Remove duplicate LaTeX expressions (rendered and unrendered versions)
+    pattern = r'(\$[^$]+\$)(\1)'
+    cleaned = re.sub(pattern, r'\1', text)
     
+    return cleaned
+
 def main():
     st.set_page_config(page_title="AI Study Tool", page_icon="📚", layout="centered")
 
@@ -444,18 +462,22 @@ def main():
             if st.session_state.study_tool == "Flashcards":
                 st.write(f"Generated {len(st.session_state.study_material)} Flashcards:")
                 
+                if 'current_card_index' not in st.session_state:
+                    st.session_state.current_card_index = 0
+
                 flashcard_container = st.container()
 
                 with flashcard_container:
-                    current_question, current_answer = st.session_state.study_material[st.session_state.current_card_index]
-                    
-                    col1, col2, col3 = st.columns([1, 3, 1])
-                    with col2:
-                        st.markdown("### Question")
-                        render_content(current_question)
-                        if st.button("Reveal Answer"):
-                            st.markdown("### Answer")
-                            render_content(current_answer)
+                    if 0 <= st.session_state.current_card_index < len(st.session_state.study_material):
+                        current_question, current_answer = st.session_state.study_material[st.session_state.current_card_index]
+                        
+                        col1, col2, col3 = st.columns([1, 3, 1])
+                        with col2:
+                            st.markdown("### Question")
+                            st.markdown(clean_latex(current_question), unsafe_allow_html=True)
+                            if st.button("Reveal Answer"):
+                                st.markdown("### Answer")
+                                st.markdown(clean_latex(current_answer), unsafe_allow_html=True)
 
                 # Navigation buttons
                 col1, col2, col3 = st.columns(3)
@@ -471,24 +493,27 @@ def main():
                 # Progress indicator
                 st.progress((st.session_state.current_card_index + 1) / len(st.session_state.study_material))
                 st.write(f"Card {st.session_state.current_card_index + 1} of {len(st.session_state.study_material)}")
-
+                            
             else:  # Quiz
                 st.write(f"Generated Quiz with {len(st.session_state.study_material)} Questions:")
                 for i, (question, options, correct) in enumerate(st.session_state.study_material, 1):
                     st.subheader(f"Question {i}")
-                    render_content(question)
+                    st.markdown(clean_latex(question), unsafe_allow_html=True)
                     
                     answer_key = f"q_{i}"
                     if answer_key not in st.session_state.quiz_answers:
                         st.session_state.quiz_answers[answer_key] = None
 
+                    # Use radio buttons for answer selection
                     user_answer = st.radio(
                         f"Select your answer for Question {i}:",
                         options,
                         key=f"radio_{answer_key}",
-                        index=None
+                        index=None,
+                        format_func=lambda x: clean_latex(x)
                     )
                     
+                    # Update the answer immediately when selected
                     if user_answer is not None:
                         st.session_state.quiz_answers[answer_key] = user_answer
                     
@@ -496,10 +521,11 @@ def main():
                     
                     if check_button and user_answer is not None:
                         st.session_state.quiz_checked[answer_key] = True
-                        if user_answer == correct:
+                        if st.session_state.quiz_answers[answer_key] == correct:
                             st.success("Correct! 🎉")
                         else:
-                            st.error(f"Incorrect. The correct answer is: {correct}")
+                            st.error("Incorrect.")
+                            st.markdown(f"The correct answer is: **{clean_latex(correct)}**", unsafe_allow_html=True)
                     
                     st.write("---")
 
