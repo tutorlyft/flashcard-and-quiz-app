@@ -162,6 +162,10 @@ def generate_flashcards(text, num_cards=5):
     logger.info(f"Starting generate_flashcards function with {num_cards} cards")
     logger.info(f"Input text length: {len(text)}")
     
+    if not text.strip():
+        logger.error("Input text is empty")
+        return []
+
     if not client.api_key:
         logger.error("OpenAI API key is not set")
         return []
@@ -209,21 +213,37 @@ def generate_flashcards(text, num_cards=5):
             logger.info(f"Received response from OpenAI API for batch {batch+1}")
             logger.info(f"Full API response: {response}")  # Log the full response
 
+            if not response.choices:
+                logger.error(f"No choices in the response for batch {batch+1}")
+                continue
+
             flashcards_text = response.choices[0].message.content.strip()
             logger.info(f"Generated flashcards text for batch {batch+1}: {flashcards_text}")  # Log the full flashcards text
 
+            batch_flashcards = []
             for card in flashcards_text.split("\n\n"):
                 if card.startswith("Q: ") and "A: " in card:
                     question, answer = card.split("A: ")
                     question = question.replace("Q: ", "").strip()
                     answer = answer.strip()
-                    all_flashcards.append((question, answer))
+                    batch_flashcards.append((question, answer))
+
+            if not batch_flashcards:
+                logger.warning(f"No valid flashcards found in batch {batch+1}")
+            else:
+                all_flashcards.extend(batch_flashcards)
+                logger.info(f"Added {len(batch_flashcards)} flashcards from batch {batch+1}")
 
         except Exception as e:
             logger.error(f"Error in generate_flashcards batch {batch+1}: {str(e)}")
             logger.error(traceback.format_exc())
 
     logger.info(f"Total flashcards generated: {len(all_flashcards)}")
+    
+    if not all_flashcards:
+        logger.error("No flashcards were generated")
+        return []
+
     return all_flashcards[:num_cards]
 
 def generate_quiz(text, num_questions=5):
@@ -245,7 +265,6 @@ def generate_quiz(text, num_questions=5):
     2. Create a clear and concise question about this concept.
     3. Provide four answer choices, including the correct answer and three plausible distractors.
     4. Indicate the correct answer.
-    5. Use LaTeX notation for any mathematical expressions, enclosed in $ symbols for inline math.
 
     Format each question as:
     Q: [question]
@@ -254,9 +273,6 @@ def generate_quiz(text, num_questions=5):
     C: [option 3]
     D: [option 4]
     Correct: [letter of correct answer]
-
-    Ensure that each option is on a separate line and starts with the corresponding letter (A, B, C, or D).
-    For any mathematical expressions, use LaTeX notation. For example, x^2 should be written as $x^2$.
 
     Text: {text[:4000]}  # Limit text to 4000 characters
 
@@ -276,14 +292,14 @@ def generate_quiz(text, num_questions=5):
             temperature=0.7,
         )
         logger.info("Received response from OpenAI API")
-        logger.info(f"Full API response: {response}")  # Log the full response
+        logger.info(f"Full API response: {response}")
 
         if not response.choices:
             logger.error("No choices in the response")
             return [], "No choices in the OpenAI API response"
 
         quiz_text = response.choices[0].message.content.strip()
-        logger.info(f"Generated quiz text: {quiz_text}")  # Log the full quiz text
+        logger.info(f"Generated quiz text: {quiz_text}")
         
         quiz = parse_quiz_text(quiz_text)
         
@@ -294,7 +310,7 @@ def generate_quiz(text, num_questions=5):
         
         if not quiz:
             logger.error("No questions could be parsed from the OpenAI API response")
-            return [], "No questions could be parsed from the OpenAI API response"
+            return [], f"No questions could be parsed from the OpenAI API response. Response content: {quiz_text[:500]}..."
         
         return quiz, None
     except Exception as e:
@@ -497,8 +513,12 @@ def main():
 
                     if st.session_state.study_tool == "Flashcards":
                         st.session_state.study_material = generate_flashcards(st.session_state.extracted_text, st.session_state.num_items)
+                        if not st.session_state.study_material:
+                            st.error("Failed to generate flashcards. Please check the logs for more information.")
                     else:  # Quiz
                         st.session_state.study_material, error_message = generate_quiz(st.session_state.extracted_text, st.session_state.num_items)
+                        if error_message:
+                            st.error(f"Failed to generate quiz: {error_message}")
                     
                     if st.session_state.study_material:
                         logger.info(f"Generated study material: {st.session_state.study_material}")
@@ -506,12 +526,11 @@ def main():
                     else:
                         logger.warning("No study material generated from input.")
                         st.warning("No study material generated. Please try again.")
-                        if error_message:
-                            st.error(f"Error: {error_message}")
                 except Exception as e:
                     logger.error(f"Error generating study material: {str(e)}")
                     logger.error(traceback.format_exc())
-                    st.error(f"An error occurred while generating {st.session_state.study_tool.lower()}. Please try again.")
+                    st.error(f"An error occurred while generating {st.session_state.study_tool.lower()}. Please check the logs for more information.")
+                    st.error(f"Error details: {str(e)}")
 
         if st.session_state.study_material:
             logger.info(f"Displaying {st.session_state.study_tool}")
