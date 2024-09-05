@@ -15,6 +15,7 @@ from pytube import YouTube
 import sys
 import traceback
 import json
+from PIL import Image, ImageEnhance, ImageFilter
 #from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -29,6 +30,22 @@ log_stream = io.StringIO()
 logging.basicConfig(level=logging.INFO, stream=log_stream, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def preprocess_image(image):
+    # Convert to grayscale
+    image = image.convert('L')
+    
+    # Increase contrast
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(2)
+    
+    # Increase sharpness
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(2)
+    
+    # Apply a slight blur to reduce noise
+    image = image.filter(ImageFilter.GaussianBlur(radius=0.5))
+    
+    return image
 
 def extract_text(uploaded_file):
     file_extension = uploaded_file.name.split('.')[-1].lower()
