@@ -67,13 +67,18 @@ def extract_text(uploaded_file):
     elif file_extension in ['jpg', 'jpeg', 'png']:
         try:
             image = Image.open(io.BytesIO(uploaded_file.read()))
-            text = pytesseract.image_to_string(image)
-            if text.strip():
-                return text
-            else:
-                return "No text could be extracted from the image. The image might not contain readable text, or the text might be too complex for the OCR to recognize."
+            try:
+                text = pytesseract.image_to_string(image)
+                if text.strip():
+                    return text
+                else:
+                    return "No text could be extracted from the image. The image might not contain readable text, or the text might be too complex for the OCR to recognize."
+            except pytesseract.TesseractNotFoundError:
+                return "Error: Tesseract is not installed or not in the PATH. Please install Tesseract OCR to process images."
+            except Exception as e:
+                return f"Error processing image with pytesseract: {str(e)}"
         except Exception as e:
-            return f"Error processing image: {str(e)}"
+            return f"Error opening image file: {str(e)}"
     
     else:
         return "Unsupported file type"
