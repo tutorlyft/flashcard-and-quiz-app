@@ -67,21 +67,54 @@ def extract_text(uploaded_file):
     elif file_extension in ['jpg', 'jpeg', 'png']:
         try:
             image = Image.open(io.BytesIO(uploaded_file.read()))
-            try:
-                text = pytesseract.image_to_string(image)
-                if text.strip():
-                    return text
-                else:
-                    return "No text could be extracted from the image. The image might not contain readable text, or the text might be too complex for the OCR to recognize."
-            except pytesseract.TesseractNotFoundError:
-                return "Error: Tesseract is not installed or not in the PATH. Please install Tesseract OCR to process images."
-            except Exception as e:
-                return f"Error processing image with pytesseract: {str(e)}"
+            
+            # First, try the current method
+            text = pytesseract.image_to_string(image)
+            if text.strip():
+                return text
+            
+            # If no text is found, apply preprocessing and try different orientations
+            preprocessed_image = preprocess_image(image)
+            orientations = [0, 90, 180, 270]
+            results = []
+            
+            for orientation in orientations:
+                rotated_image = preprocessed_image.rotate(orientation, expand=True)
+                try:
+                    text = pytesseract.image_to_string(rotated_image)
+                    if text.strip():
+                        results.append((len(text), text, orientation))
+                except Exception as e:
+                    st.warning(f"Error processing orientation {orientation}: {str(e)}")
+            
+            if results:
+                # Select the result with the most text
+                best_result = max(results, key=lambda x: x[0])
+                st.info(f"Text extracted after rotation. Best orientation: {best_result[2]} degrees")
+                return best_result[1]
+            else:
+                st.warning("No text could be extracted from the image in any orientation.")
+                return "No text could be extracted from the image. The image might not contain readable text, or the text might be too complex for the OCR to recognize."
         except Exception as e:
-            return f"Error opening image file: {str(e)}"
+            st.error(f"Error processing image: {str(e)}")
+            return f"Error processing image: {str(e)}"
     
     else:
         return "Unsupported file type"
+
+def preprocess_image(image):
+    # Convert to grayscale
+    image = image.convert('L')
+    
+    # Increase contrast
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(2)
+    
+    # Increase sharpness
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(2)
+    
+    return image
 
 def extract_text_from_video(video_url):
     try:
