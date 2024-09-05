@@ -15,13 +15,14 @@ from pytube import YouTube
 import sys
 import traceback
 import json
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+#load_dotenv()
 
 # Initialize the OpenAI client with the API key from the environment variable
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+#client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # Set up logging
 log_stream = io.StringIO()
